@@ -1,166 +1,231 @@
-use glam::Vec2;
+use std::ops::Range;
+
+use super::auxiliar::Color;
 use minifb::{Window, WindowOptions};
 
-use crate::{
-    mesh::{Shape, Vertex, draw_shape},
-    texture::Material,
-    transform::Transform,
-};
-
 pub trait PluginGalar {
-    fn update(&mut self, window: &Window, buffer: &mut Vec<u32>);
+    fn update(&mut self, config: &mut ConfigGalar);
+
+    // Método opcional para inicialización
+    fn init(&mut self, _config: &mut ConfigGalar) {
+        println!("Initialize Plugin: {}", self.name());
+    }
+
+    // Método opcional para limpiar recursos
+    fn cleanup(&mut self, _config: &mut ConfigGalar) {}
+
+    // Nombre del plugin para depuración
+    fn name(&self) -> &str {
+        "UnnamedPlugin"
+    }
 }
 
-pub enum GeometryShape {
-    Triangle {
-        x: usize,
-        y: usize,
-        size: f32,
-        color: Color,
-    },
-    Square {
-        x: usize,
-        y: usize,
-        size: f32,
-        color: Color,
-    },
-    Circle {
-        x: usize,
-        y: usize,
-        radio: f32,
-        segments: usize,
-        color: Color,
-    },
+// Configuración con lifetimes explícitos y mejor encapsulación
+pub struct ConfigGalar<'g> {
+    window: &'g mut Window,
+    buffer: &'g mut Vec<u32>,
+    clean: &'g mut bool,
+    width: usize,
+    height: usize,
+    background: &'g mut u32,
+    nonloop: &'g mut bool,
 }
 
-impl GeometryShape {
-    fn new_shape(&self) -> Shape {
-        match self {
-            &GeometryShape::Triangle { x, y, size, color } => {
-                Self::shape_triangle(x, y, size, color)
+impl<'g> ConfigGalar<'g> {
+    // Constructor privado usado solo por Galar
+    fn new(
+        window: &'g mut Window,
+        buffer: &'g mut Vec<u32>,
+        clean: &'g mut bool,
+        background: &'g mut u32,
+        nonloop: &'g mut bool,
+    ) -> Self {
+        let (width, height) = window.get_size();
+        Self {
+            window,
+            buffer,
+            clean,
+            width,
+            height,
+            background,
+            nonloop,
+        }
+    }
+
+    /// Métodos públicos para consulta
+    pub fn size(&self) -> (usize, usize) {
+        (self.width, self.height)
+    }
+
+    /// Mejor semántica: usa set_* para modificadores
+    pub fn set_clean_pixels(&mut self, clear: bool) {
+        *self.clean = clear;
+    }
+
+    /// Define el color del fondo
+    pub fn set_background(&mut self, color: u32) {
+        *self.background = color;
+    }
+
+    /// Se ejecuta 1 frame, ya no se ejecute cada frame
+    pub fn nonloop(&mut self) {
+        *self.nonloop = false;
+    }
+
+    /// Control fino sobre la limpieza
+    pub fn clear_buffer(&mut self) {
+        if *self.clean {
+            self.buffer.fill(*self.background);
+        }
+    }
+
+    /// Método para dibujar directamente
+    pub fn explicit_draw(&mut self, index: usize, color: u32) {
+        self.buffer[index] = color;
+    }
+
+    /// Iteración sobre una dimención segun la resolución de la pantalla
+    pub fn iter_d1(&self) -> Range<usize> {
+        0..(self.width * self.height)
+    }
+
+    /// Métodos para dibujar con validación de límites
+    pub fn draw_pixel(&mut self, x: usize, y: usize, color: u32) {
+        if x < self.width && y < self.height {
+            self.buffer[y * self.width + x] = color;
+        }
+    }
+
+    /// Optimización: dibujar segmentos de línea de manera eficiente
+    pub fn draw_line(&mut self, x0: usize, y0: usize, x1: usize, y1: usize, color: Color) {
+        // Implementación de Bresenham para líneas
+        let hex_color = color.to_hex();
+
+        let mut x0 = x0 as isize;
+        let mut y0 = y0 as isize;
+        let x1 = x1 as isize;
+        let y1 = y1 as isize;
+
+        let dx = (x1 - x0).abs();
+        let dy = -(y1 - y0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx + dy;
+
+        let width = self.width as isize;
+        let height = self.height as isize;
+
+        loop {
+            if x0 >= 0 && x0 < width && y0 >= 0 && y0 < height {
+                self.buffer[(y0 as usize) * self.width + (x0 as usize)] = hex_color;
             }
-            &GeometryShape::Square { x, y, size, color } => Self::shape_square(x, y, size, color),
-            &GeometryShape::Circle {
-                x,
-                y,
-                radio,
-                segments,
-                color,
-            } => Self::shape_circle(x, y, radio, segments, color),
+
+            if x0 == x1 && y0 == y1 {
+                break;
+            }
+
+            let e2 = 2 * err;
+            if e2 >= dy {
+                if x0 == x1 {
+                    break;
+                }
+                err += dy;
+                x0 += sx;
+            }
+            if e2 <= dx {
+                if y0 == y1 {
+                    break;
+                }
+                err += dx;
+                y0 += sy;
+            }
         }
     }
-    fn shape_triangle(x: usize, y: usize, size: f32, color: Color) -> Shape {
-        let h = (size * (3.0_f32).sqrt()) / 2.0; // altura del triángulo equilátero
 
-        Shape {
-            vertices: vec![
-                Vertex {
-                    x: -size / 2.0,
-                    y: -h / 3.0,
-                    color,
-                    uv: Vec2::new(1.0, 1.0),
-                },
-                Vertex {
-                    x: size / 2.0,
-                    y: -h / 3.0,
-                    color,
-                    uv: Vec2::new(1.0, 1.0),
-                },
-                Vertex {
-                    x: 0.0,
-                    y: (2.0 * h) / 3.0,
-                    color,
-                    uv: Vec2::new(1.0, 1.0),
-                },
-            ],
-            indices: vec![[0, 1, 2]],
-            transform: Transform::from_translation(x, y),
-            material: Material::default(),
-            layer: 0,
+    /// Métodos adicionales para formas rectangulares
+    pub fn draw_rect(&mut self, x: usize, y: usize, width: usize, height: usize, color: Color) {
+        let x_max = (x + width).min(self.width);
+        let y_max = (y + height).min(self.height);
+        let hex_color = color.to_hex();
+
+        for curr_y in y..y_max {
+            for curr_x in x..x_max {
+                self.buffer[curr_y * self.width + curr_x] = hex_color;
+            }
         }
     }
-    fn shape_square(x: usize, y: usize, size: f32, color: Color) -> Shape {
-        Shape {
-            vertices: vec![
-                Vertex {
-                    x: -size / 2.0,
-                    y: size / 2.0,
-                    color,
-                    uv: Vec2::new(0.0, 0.0),
-                },
-                Vertex {
-                    x: -size / 2.0,
-                    y: -size / 2.0,
-                    color,
-                    uv: Vec2::new(0.0, 1.0),
-                },
-                Vertex {
-                    x: size / 2.0,
-                    y: -size / 2.0,
-                    color,
-                    uv: Vec2::new(1.0, 1.0),
-                },
-                Vertex {
-                    x: size / 2.0,
-                    y: size / 2.0,
-                    color,
-                    uv: Vec2::new(1.0, 0.0),
-                },
-            ],
-            indices: vec![[0, 1, 2], [0, 2, 3]],
-            transform: Transform::from_translation(x, y),
-            material: Material::default(),
-            layer: 0,
+
+    /// Métodos adicionales para formas circulares
+    pub fn draw_circle(&mut self, cx: usize, cy: usize, radius: usize, color: u32) {
+        let hex_color = color;
+        let radius = radius as isize;
+
+        let r2 = radius * radius;
+
+        let width = self.width as isize;
+        let height = self.height as isize;
+
+        for y in -radius..=radius {
+            for x in -radius..=radius {
+                if x * x + y * y <= r2 {
+                    let px = cx as isize + x;
+                    let py = cy as isize + y;
+                    if px >= 0 && px < width && py >= 0 && py < height {
+                        self.buffer[(py as usize) * self.width + (px as usize)] = hex_color;
+                    }
+                }
+            }
         }
     }
-    fn shape_circle(x: usize, y: usize, radius: f32, segments: usize, color: Color) -> Shape {
-        let mut vertices = vec![Vertex {
-            x: 0.0,
-            y: 0.0,
-            color,
-            uv: Vec2::ZERO,
-        }];
-        let mut indices = vec![];
 
-        for i in 0..segments {
-            let angle = (i as f32 / segments as f32) * std::f32::consts::TAU;
-            let x = radius * angle.cos();
-            let y = radius * angle.sin();
-            vertices.push(Vertex {
-                x,
-                y,
-                color,
-                uv: Vec2::ZERO,
-            });
+    /// WIREFRAME: Métodos adicionales para formas circulares
+    pub fn draw_circle_outline(&mut self, cx: isize, cy: isize, radius: isize, color: Color) {
+        let hex_color = color.to_hex();
+        let r2 = radius * radius;
+        let inner_r2 = (radius - 1) * (radius - 1);
 
-            let i0 = 0;
-            let i1 = i + 1;
-            let i2 = if i + 2 > segments { 1 } else { i + 2 };
-            indices.push([i0, i1, i2]);
+        let width = self.width as isize;
+        let height = self.height as isize;
+
+        for y in -radius..=radius {
+            for x in -radius..=radius {
+                let dist2 = x * x + y * y;
+                if dist2 <= r2 && dist2 >= inner_r2 {
+                    let px = cx + x;
+                    let py = cy + y;
+                    if px >= 0 && px < width && py >= 0 && py < height {
+                        self.buffer[(py as usize) * self.width + (px as usize)] = hex_color;
+                    }
+                }
+            }
         }
+    }
 
-        Shape {
-            vertices,
-            indices,
-            transform: Transform::from_translation(x, y),
-            material: Material::default(),
-            layer: 0,
-        }
+    // Acceso controlado a las pulsaciones de teclas
+    pub fn is_key_down(&self, key: minifb::Key) -> bool {
+        self.window.is_key_down(key)
+    }
+
+    // Obtorga las posiciones logicas del Mouse
+    pub fn get_mouse_position(&mut self, mode: minifb::MouseMode) -> Option<(f32, f32)> {
+        self.window.get_mouse_pos(mode)
+    }
+
+    // Acceso controlado al estado de la ventana
+    pub fn is_open(&self) -> bool {
+        self.window.is_open()
     }
 }
 
-impl PluginGalar for GeometryShape {
-    fn update(&mut self, window: &Window, buffer: &mut Vec<u32>) {
-        let shape = self.new_shape();
-
-        draw_shape(buffer, window, &shape);
-    }
-}
-
+// Motor principal con mejor gestión de recursos
 pub struct Galar {
-    pub window: Window,
-    pub buffer: Vec<u32>,
-    pub plugins: Vec<Box<dyn PluginGalar>>, // Aqui van los draw y posiblemente otras funcionalidades
+    window: Window,
+    buffer: Vec<u32>,
+    clean: bool,
+    background: u32,
+    plugins: Vec<Box<dyn PluginGalar>>,
+    running: bool,
+    nonloop: bool,
 }
 
 impl Galar {
@@ -170,249 +235,140 @@ impl Galar {
         height: usize,
         framerate: usize,
         options: Option<WindowOptions>,
-    ) -> Self {
-        let mut window = Window::new(
+    ) -> Result<Self, String> {
+        let window = Window::new(
             name,
             width,
             height,
-            if let Some(window_options) = options {
-                window_options
-            } else {
-                WindowOptions::default()
-            },
+            options.unwrap_or(WindowOptions::default()),
         )
-        .unwrap();
-        window.set_target_fps(framerate);
+        .map_err(|e| format!("Failed to create window: {}", e))?;
+
+        let mut window_instance = window;
+        window_instance.set_target_fps(framerate);
 
         let buffer = vec![0u32; width * height];
-        let plugins = Vec::new();
-        Self {
-            window,
+
+        Ok(Self {
+            window: window_instance,
             buffer,
-            plugins,
-        }
+            clean: true,
+            background: 0,
+            plugins: Vec::new(),
+            running: false,
+            nonloop: false,
+        })
     }
 
-    pub fn add_plugin<P: PluginGalar + 'static>(&mut self, plugin: P) {
+    // Builder pattern para una API más fluida
+    pub fn with_clean_pixels(mut self, clear: bool) -> Self {
+        self.clean = clear;
+        self
+    }
+
+    // Añadir plugins con verificación
+    pub fn add_plugin<P: PluginGalar + 'static>(&mut self, mut plugin: P) -> &mut Self {
+        // Configuración temporal para inicializar el plugin
+        let mut config = ConfigGalar::new(
+            &mut self.window,
+            &mut self.buffer,
+            &mut self.clean,
+            &mut self.background,
+            &mut self.nonloop,
+        );
+
+        // Inicializar el plugin, para pre-configuración
+        plugin.init(&mut config);
+
+        // Añadir a la lista
         self.plugins.push(Box::new(plugin));
+        self
     }
 
-    pub fn run(&mut self) {
+    // Método para detener el bucle de ejecución desde fuera
+    pub fn stop(&mut self) {
+        self.running = false;
+    }
+
+    // Método para ejecutar una vez el dibujo
+    pub fn nonloop(&mut self) {
+        self.nonloop = false;
+    }
+
+    // Bucle principal con mejor manejo de errores
+    pub fn run(&mut self) -> Result<(), String> {
+        if self.plugins.is_empty() {
+            eprintln!("No plugins added. Add at least one plugin before running.");
+            return Err("No plugins added. Add at least one plugin before running.".to_string());
+        }
+
         let (width, height) = self.window.get_size();
+        self.running = true;
 
-        while self.window.is_open() && !self.window.is_key_down(minifb::Key::Space) {
-            self.buffer.fill(0u32); // borrar el rastro en pocas palabras
+        let mut local_nonloop = true;
 
-            for plugin in self.plugins.iter_mut() {
-                plugin.update(&self.window, &mut self.buffer);
+        // Bucle principal
+        while self.running && self.window.is_open() && !self.window.is_key_down(minifb::Key::Escape)
+        {
+            if local_nonloop {
+                // Crear configuración para este frame
+                let mut config = ConfigGalar::new(
+                    &mut self.window,
+                    &mut self.buffer,
+                    &mut self.clean,
+                    &mut self.background,
+                    &mut self.nonloop,
+                );
+
+                // Limpiar buffer si es necesario
+                config.clear_buffer();
+
+                // Actualizar todos los plugins
+                for plugin in self.plugins.iter_mut() {
+                    plugin.update(&mut config);
+                }
+                local_nonloop = self.nonloop;
             }
 
+            // Actualizar la ventana con el buffer
             self.window
                 .update_with_buffer(&self.buffer, width, height)
-                .unwrap();
+                .map_err(|e| format!("Failed to update window: {}", e))?;
         }
+
+        // Limpiar recursos de plugins
+        let mut config = ConfigGalar::new(
+            &mut self.window,
+            &mut self.buffer,
+            &mut self.clean,
+            &mut self.background,
+            &mut self.nonloop,
+        );
+
+        for plugin in self.plugins.iter_mut() {
+            plugin.cleanup(&mut config);
+        }
+
+        Ok(())
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Color {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-    pub a: u8,
-}
+// Implementación de Drop para limpieza segura
+impl Drop for Galar {
+    fn drop(&mut self) {
+        // Asegurar que todos los plugins liberen sus recursos
+        if !self.plugins.is_empty() {
+            let mut config = ConfigGalar::new(
+                &mut self.window,
+                &mut self.buffer,
+                &mut self.clean,
+                &mut self.background,
+                &mut self.nonloop,
+            );
 
-impl Default for Color {
-    fn default() -> Self {
-        Self {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 255, // Alpha por defecto completamente opaco
+            for plugin in self.plugins.iter_mut() {
+                plugin.cleanup(&mut config);
+            }
         }
     }
-}
-
-impl Color {
-    pub fn rgb(r: u8, g: u8, b: u8) -> Self {
-        Self { r, g, b, a: 255 }
-    }
-
-    pub fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
-        Self { r, g, b, a }
-    }
-
-    /// Valores en un rango de:
-    ///
-    /// h => 0.0 .. 360.0
-    ///
-    /// s => 0.0 .. 1.0
-    ///
-    /// l => 0.0 .. 1.0
-    pub fn hsl(h: f32, s: f32, l: f32) -> Self {
-        let s = s.clamp(0.0, 1.0);
-        let l = l.clamp(0.0, 1.0);
-
-        if s == 0.0 {
-            let value = (l * 255.0).round() as u8;
-            return Self::rgb(value, value, value);
-        }
-
-        let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
-        let h = h % 360.0;
-        let h = if h < 0.0 { h + 360.0 } else { h };
-        let h_prime = h / 60.0;
-        let sector = h_prime as u8 % 6;
-        let x = c * (1.0 - (h_prime % 2.0 - 1.0).abs());
-
-        let (r1, g1, b1) = match sector {
-            0 => (c, x, 0.0),
-            1 => (x, c, 0.0),
-            2 => (0.0, c, x),
-            3 => (0.0, x, c),
-            4 => (x, 0.0, c),
-            5 => (c, 0.0, x),
-            _ => unreachable!(),
-        };
-
-        let m = l - c / 2.0;
-
-        let r = ((r1 + m).clamp(0.0, 1.0) * 255.0).round() as u8;
-        let g = ((g1 + m).clamp(0.0, 1.0) * 255.0).round() as u8;
-        let b = ((b1 + m).clamp(0.0, 1.0) * 255.0).round() as u8;
-
-        Self::rgb(r, g, b)
-    }
-
-    /// Order `RRGGBBAA``, no el clásico `AARRGGBB``
-    pub fn to_hex(&self) -> u32 {
-        (self.r as u32) << 24 | (self.g as u32) << 16 | (self.b as u32) << 8 | self.a as u32
-    }
-
-    // Método adicional para crear desde HSLA
-    pub fn hsla(h: f32, s: f32, l: f32, a: u8) -> Self {
-        let mut color = Self::hsl(h, s, l);
-        color.a = a;
-        color
-    }
-
-    /// Empieza en `&self` y termina con `end`
-    pub fn interpolate_color(&self, end: Self, t: f32) -> Self {
-        Self {
-            r: ((1.0 - t) * self.r as f32 + t * end.r as f32) as u8,
-            g: ((1.0 - t) * self.g as f32 + t * end.g as f32) as u8,
-            b: ((1.0 - t) * self.b as f32 + t * end.b as f32) as u8,
-            a: ((1.0 - t) * self.a as f32 + t * end.a as f32) as u8,
-        }
-    }
-
-    // Constantes de colores básicos y extendidos
-    pub const WHITE: Self = Self {
-        r: 255,
-        g: 255,
-        b: 255,
-        a: 255,
-    };
-    pub const BLACK: Self = Self {
-        r: 0,
-        g: 0,
-        b: 0,
-        a: 255,
-    };
-    pub const RED: Self = Self {
-        r: 255,
-        g: 0,
-        b: 0,
-        a: 255,
-    };
-    pub const GREEN: Self = Self {
-        r: 0,
-        g: 255,
-        b: 0,
-        a: 255,
-    };
-    pub const BLUE: Self = Self {
-        r: 0,
-        g: 0,
-        b: 255,
-        a: 255,
-    };
-    pub const YELLOW: Self = Self {
-        r: 255,
-        g: 255,
-        b: 0,
-        a: 255,
-    };
-    pub const CYAN: Self = Self {
-        r: 0,
-        g: 255,
-        b: 255,
-        a: 255,
-    };
-    pub const MAGENTA: Self = Self {
-        r: 255,
-        g: 0,
-        b: 255,
-        a: 255,
-    };
-    pub const GRAY: Self = Self {
-        r: 128,
-        g: 128,
-        b: 128,
-        a: 255,
-    };
-    pub const ORANGE: Self = Self {
-        r: 255,
-        g: 165,
-        b: 0,
-        a: 255,
-    };
-    pub const PURPLE: Self = Self {
-        r: 128,
-        g: 0,
-        b: 128,
-        a: 255,
-    };
-    pub const BROWN: Self = Self {
-        r: 139,
-        g: 69,
-        b: 19,
-        a: 255,
-    };
-    pub const PINK: Self = Self {
-        r: 255,
-        g: 192,
-        b: 203,
-        a: 255,
-    };
-    pub const LIME: Self = Self {
-        r: 50,
-        g: 205,
-        b: 50,
-        a: 255,
-    };
-    pub const TEAL: Self = Self {
-        r: 0,
-        g: 128,
-        b: 128,
-        a: 255,
-    };
-    pub const NAVY: Self = Self {
-        r: 0,
-        g: 0,
-        b: 128,
-        a: 255,
-    };
-    pub const GOLD: Self = Self {
-        r: 255,
-        g: 215,
-        b: 0,
-        a: 255,
-    };
-    pub const SILVER: Self = Self {
-        r: 192,
-        g: 192,
-        b: 192,
-        a: 255,
-    };
 }

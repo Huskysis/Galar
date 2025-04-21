@@ -1,4 +1,4 @@
-use crate::utils::Color;
+use super::auxiliar::Color;
 
 #[derive(Debug, Clone)]
 pub struct Texture {
@@ -50,8 +50,8 @@ impl Material {
         if let Some(texture) = &self.texture {
             let width = texture.size.0;
             let height = texture.size.1;
-            let x = (u * (width as f32 - 1.0)) as u32;
-            let y = (v * (height as f32 - 1.0)) as u32;
+            let x = (u * (width as f32 - 1.0)).round() as u32;
+            let y = (v * (height as f32 - 1.0)).round() as u32;
 
             let index = (y * width + x) as usize;
             pixel = texture.data.get(index).copied().unwrap_or(0xFF00FFFF) // magenta if out-of-bounds
