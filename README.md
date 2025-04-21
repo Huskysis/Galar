@@ -1,16 +1,22 @@
-# Galar 🌀
+# Galar 🌀  
+**Motor Gráfico Experimental en Rust**
 
-**Galar** es un motor gráfico 2D minimalista y experimental escrito en **Rust**, orientado a la creación de sistemas personalizados y exploración de mecánicas gráficas no convencionales.
+> Un motor gráfico 2D minimalista y experimental. Utiliza `minifb` para renderizado en framebuffer y se enfoca en la exploración de conceptos como generación procedural, optimización matemática, y sistemas de renderizado personalizados.
 
-Este motor está pensado como una **herramienta de investigación y aprendizaje**, ideal para quienes deseen construir su propio stack visual desde cero, enfocándose en conceptos como renderizado personalizado, sistemas de color avanzados, matemáticas optimizadas y estructuras modulares por plugins.
+---
 
-## ⚙️ Características Actuales
+## ✨ Características
 
-- Renderizado en ventana mediante [`minifb`](https://github.com/emoon/rust_minifb).
-- Utilidades matemáticas optimizadas (`fast_sqrt`, remapeo, interpolaciones).
-- Sistema de color completo (`Color`): RGB, HSL, aleatorio, interpolado, gradientes térmicos y más.
-- Geometría y proximidad en espacio 2D.
-- Soporte para extensibilidad vía traits (`PluginGalar`).
+- 🔧 **Sistema de Plugins** extensible mediante `trait PluginGalar`.
+- 🖥️ **Renderizado rápido** en `minifb` con control total del framebuffer.
+- 🧠 **Algoritmos matemáticos personalizados** (e.g. `fast_sqrt`, `remap`, `proximidad`)
+- 🎨 Sistema de color completo (`Color`): RGB, HSL, aleatorio, interpolado, gradientes térmicos y más.
+- 🔺 **Render de triángulos** con transformación, color y textura.
+- 📦 Sistema de configuración flexible (`ConfigGalar`)
+- 🧼 ~Limpieza automática de buffer por ciclo de renderizado.~
+- 🧭 ~Gestión básica de eventos y entradas del usuario.~
+
+---
 
 ## ⚠️ Estado del Proyecto
 
