@@ -1,5 +1,5 @@
 use super::{
-    auxiliar::Color,
+    colores::Color,
     shape::{GeometryShape, Shape, Vertex},
     texture::Material,
     transform::Transform,
@@ -49,10 +49,10 @@ fn draw_triangle_cpu(
     let p1: (f32, f32);
     let p2: (f32, f32);
     if shape.origen {
-        // 🧠 Dimensiones aproximadas del shape (puede venir de otra parte)
+        // Dimensiones aproximadas del shape (puede venir de otra parte)
         let (center_x, center_y) = shape.get_center();
 
-        // 💫 Aplicamos transformación centrada
+        // Aplicamos transformación centrada
         p0 = transform.apply_centered(v0.x, v0.y, center_x, center_y);
         p1 = transform.apply_centered(v1.x, v1.y, center_x, center_y);
         p2 = transform.apply_centered(v2.x, v2.y, center_x, center_y);
@@ -63,12 +63,6 @@ fn draw_triangle_cpu(
     }
 
     // bounding box con clamp
-    // let min_x = p0.0.min(p1.0).min(p2.0).floor().max(0.0) as usize;
-    // let max_x = p0.0.max(p1.0).max(p2.0).ceil().min(width as f32 - 1.0) as usize;
-
-    // let min_y = p0.1.min(p1.1).min(p2.1).floor().max(0.0) as usize;
-    // let max_y = p0.1.max(p1.1).max(p2.1).ceil().min(height as f32 - 1.0) as usize;
-
     let min_x = p0.0.min(p1.0).min(p2.0).trunc().max(0.0) as usize;
     let max_x = p0.0.max(p1.0).max(p2.0).trunc().min(width as f32 - 1.0) as usize;
 

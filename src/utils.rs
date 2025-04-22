@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use super::auxiliar::Color;
+use super::colores::Color;
 use minifb::{Window, WindowOptions};
 
 pub trait PluginGalar {
@@ -24,11 +24,11 @@ pub trait PluginGalar {
 pub struct ConfigGalar<'g> {
     window: &'g mut Window,
     buffer: &'g mut Vec<u32>,
-    clean: &'g mut bool,
     width: usize,
     height: usize,
-    background: &'g mut u32,
-    nonloop: &'g mut bool,
+    pub clean: &'g mut bool,
+    pub background: &'g mut u32,
+    pub frame_mode: &'g mut FrameMode,
 }
 
 impl<'g> ConfigGalar<'g> {
@@ -38,7 +38,7 @@ impl<'g> ConfigGalar<'g> {
         buffer: &'g mut Vec<u32>,
         clean: &'g mut bool,
         background: &'g mut u32,
-        nonloop: &'g mut bool,
+        frame_mode: &'g mut FrameMode,
     ) -> Self {
         let (width, height) = window.get_size();
         Self {
@@ -48,7 +48,26 @@ impl<'g> ConfigGalar<'g> {
             width,
             height,
             background,
-            nonloop,
+            frame_mode,
+        }
+    }
+
+    #[inline(always)]
+    fn auto_config(galar: &'g mut Galar) -> Self {
+        let window: &'g mut Window = &mut galar.window;
+        let buffer: &'g mut Vec<u32> = &mut galar.buffer;
+        let clean: &'g mut bool = &mut galar.clean;
+        let background: &'g mut u32 = &mut galar.background;
+        let frame_mode: &'g mut FrameMode = &mut galar.frame_mode;
+        let (width, height) = window.get_size();
+        Self {
+            window,
+            buffer,
+            clean,
+            width,
+            height,
+            background,
+            frame_mode,
         }
     }
 
@@ -67,9 +86,9 @@ impl<'g> ConfigGalar<'g> {
         *self.background = color;
     }
 
-    /// Se ejecuta 1 frame, ya no se ejecute cada frame
-    pub fn nonloop(&mut self) {
-        *self.nonloop = false;
+    /// Cambia el estado de actualización
+    pub fn set_frame_mode(&mut self, mode: FrameMode) {
+        *self.frame_mode = mode;
     }
 
     /// Control fino sobre la limpieza
@@ -97,9 +116,8 @@ impl<'g> ConfigGalar<'g> {
     }
 
     /// Optimización: dibujar segmentos de línea de manera eficiente
-    pub fn draw_line(&mut self, x0: usize, y0: usize, x1: usize, y1: usize, color: Color) {
+    pub fn draw_line(&mut self, x0: usize, y0: usize, x1: usize, y1: usize, color: u32) {
         // Implementación de Bresenham para líneas
-        let hex_color = color.to_hex();
 
         let mut x0 = x0 as isize;
         let mut y0 = y0 as isize;
@@ -117,7 +135,7 @@ impl<'g> ConfigGalar<'g> {
 
         loop {
             if x0 >= 0 && x0 < width && y0 >= 0 && y0 < height {
-                self.buffer[(y0 as usize) * self.width + (x0 as usize)] = hex_color;
+                self.buffer[(y0 as usize) * self.width + (x0 as usize)] = color;
             }
 
             if x0 == x1 && y0 == y1 {
@@ -143,14 +161,13 @@ impl<'g> ConfigGalar<'g> {
     }
 
     /// Métodos adicionales para formas rectangulares
-    pub fn draw_rect(&mut self, x: usize, y: usize, width: usize, height: usize, color: Color) {
+    pub fn draw_rect(&mut self, x: usize, y: usize, width: usize, height: usize, color: u32) {
         let x_max = (x + width).min(self.width);
         let y_max = (y + height).min(self.height);
-        let hex_color = color.to_hex();
 
         for curr_y in y..y_max {
             for curr_x in x..x_max {
-                self.buffer[curr_y * self.width + curr_x] = hex_color;
+                self.buffer[curr_y * self.width + curr_x] = color;
             }
         }
     }
@@ -217,6 +234,15 @@ impl<'g> ConfigGalar<'g> {
     }
 }
 
+pub enum FrameMode {
+    /// dibuja/actualiza cada frame
+    Continuous,
+    /// solo un frame y luego pausa, pero sigue respondiendo a input
+    SingleStep,
+    /// no actualiza nada, solo input/ventana viva
+    Paused,
+}
+
 // Motor principal con mejor gestión de recursos
 pub struct Galar {
     window: Window,
@@ -225,7 +251,7 @@ pub struct Galar {
     background: u32,
     plugins: Vec<Box<dyn PluginGalar>>,
     running: bool,
-    nonloop: bool,
+    frame_mode: FrameMode,
 }
 
 impl Galar {
@@ -256,7 +282,7 @@ impl Galar {
             background: 0,
             plugins: Vec::new(),
             running: false,
-            nonloop: false,
+            frame_mode: FrameMode::Continuous,
         })
     }
 
@@ -269,13 +295,7 @@ impl Galar {
     // Añadir plugins con verificación
     pub fn add_plugin<P: PluginGalar + 'static>(&mut self, mut plugin: P) -> &mut Self {
         // Configuración temporal para inicializar el plugin
-        let mut config = ConfigGalar::new(
-            &mut self.window,
-            &mut self.buffer,
-            &mut self.clean,
-            &mut self.background,
-            &mut self.nonloop,
-        );
+        let mut config = ConfigGalar::auto_config(self);
 
         // Inicializar el plugin, para pre-configuración
         plugin.init(&mut config);
@@ -292,7 +312,7 @@ impl Galar {
 
     // Método para ejecutar una vez el dibujo
     pub fn nonloop(&mut self) {
-        self.nonloop = false;
+        self.frame_mode = FrameMode::SingleStep;
     }
 
     // Bucle principal con mejor manejo de errores
@@ -305,29 +325,20 @@ impl Galar {
         let (width, height) = self.window.get_size();
         self.running = true;
 
-        let mut local_nonloop = true;
-
         // Bucle principal
         while self.running && self.window.is_open() && !self.window.is_key_down(minifb::Key::Escape)
         {
-            if local_nonloop {
-                // Crear configuración para este frame
-                let mut config = ConfigGalar::new(
-                    &mut self.window,
-                    &mut self.buffer,
-                    &mut self.clean,
-                    &mut self.background,
-                    &mut self.nonloop,
-                );
+            match self.frame_mode {
+                FrameMode::Continuous => self.update_all(),
+                FrameMode::SingleStep => {
+                    self.update_all();
+                    self.frame_mode = FrameMode::Paused;
 
-                // Limpiar buffer si es necesario
-                config.clear_buffer();
-
-                // Actualizar todos los plugins
-                for plugin in self.plugins.iter_mut() {
-                    plugin.update(&mut config);
+                    println!("🟡 Frame único completado.");
                 }
-                local_nonloop = self.nonloop;
+                FrameMode::Paused => {
+                    // No se actualiza nada, pero aún se puede dibujar si hay input externo
+                }
             }
 
             // Actualizar la ventana con el buffer
@@ -342,7 +353,7 @@ impl Galar {
             &mut self.buffer,
             &mut self.clean,
             &mut self.background,
-            &mut self.nonloop,
+            &mut self.frame_mode,
         );
 
         for plugin in self.plugins.iter_mut() {
@@ -350,6 +361,25 @@ impl Galar {
         }
 
         Ok(())
+    }
+
+    fn update_all(&mut self) {
+        // Crear configuración para este frame
+        let mut config = ConfigGalar::new(
+            &mut self.window,
+            &mut self.buffer,
+            &mut self.clean,
+            &mut self.background,
+            &mut self.frame_mode,
+        );
+
+        // Limpiar buffer si es necesario
+        config.clear_buffer();
+
+        // Actualizar todos los plugins
+        for plugin in self.plugins.iter_mut() {
+            plugin.update(&mut config);
+        }
     }
 }
 
@@ -363,7 +393,7 @@ impl Drop for Galar {
                 &mut self.buffer,
                 &mut self.clean,
                 &mut self.background,
-                &mut self.nonloop,
+                &mut self.frame_mode,
             );
 
             for plugin in self.plugins.iter_mut() {

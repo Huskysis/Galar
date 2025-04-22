@@ -1,7 +1,7 @@
 use glam::Vec2;
 
-use super::{draws::draw_shape, texture::Material, transform::{Scale, Transform, Translation}, utils::{ConfigGalar, PluginGalar}};
-use super::auxiliar::Color;
+use super::{draws::draw_shape, texture::Material, transform::Transform, utils::{ConfigGalar, PluginGalar}};
+use super::colores::Color;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Vertex {
@@ -45,15 +45,15 @@ impl Shape {
         }
     }
     pub fn with_position(mut self, x: f32,y: f32) -> Self {
-        self.transform.translation = Translation::new(x, y);
+        self.transform.translation = Vec2::new(x, y);
         self
     }
     pub fn with_rotation(mut self, degree: f32) -> Self {
-        self.transform.rotation.0 = degree.to_radians();
+        self.transform.rotation = degree.to_radians();
         self
     }
     pub fn with_scale(mut self, x: f32,y: f32 ) -> Self {
-        self.transform.scale = Scale::new(x, y);
+        self.transform.scale = Vec2::new(x, y);
         self
     }
     pub fn with_transform(mut self, transform: Transform) -> Self {
@@ -81,13 +81,13 @@ impl Shape {
         self
     }
     pub fn set_position(&mut self, x: f32,y: f32) {
-        self.transform.translation = Translation::new(x, y);
+        self.transform.translation = Vec2::new(x, y);
     }
     pub fn set_rotation(&mut self, degree: f32) {
-        self.transform.rotation.0 = degree.to_radians();
+        self.transform.rotation = degree.to_radians();
     }
     pub fn set_scale(&mut self, x: f32,y: f32 ) {
-        self.transform.scale = Scale::new(x, y);
+        self.transform.scale = Vec2::new(x, y);
     }
     pub fn set_transform(&mut self, transform: Transform) {
         self.transform = transform;
@@ -126,7 +126,6 @@ impl Shape {
 
 impl PluginGalar for Shape {
     fn update(&mut self, config: &mut ConfigGalar) {
-        self.transform.displace(config);
         draw_shape(config, &self);
     }
 }

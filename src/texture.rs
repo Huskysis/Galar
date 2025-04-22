@@ -1,4 +1,4 @@
-use super::auxiliar::Color;
+use super::colores::Color;
 
 #[derive(Debug, Clone)]
 pub struct Texture {
